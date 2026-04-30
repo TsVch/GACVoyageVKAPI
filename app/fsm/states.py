@@ -1,0 +1,11 @@
+from enum import StrEnum
+
+
+class DialogState(StrEnum):
+    START = "START"
+    SELECT_TOUR = "SELECT_TOUR"
+    SELECT_DATE = "SELECT_DATE"
+    INPUT_NAME = "INPUT_NAME"
+    INPUT_PHONE = "INPUT_PHONE"
+    INPUT_PEOPLE_COUNT = "INPUT_PEOPLE_COUNT"
+    CONFIRM = "CONFIRM"
