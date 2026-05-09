@@ -17,6 +17,9 @@ class Tour(Base):
     vk_album_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     video_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     rating: Mapped[float] = mapped_column(Float, default=5.0)
+    start_time: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    meeting_point: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    duration: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     bookings = relationship("Booking", back_populates="tour", lazy="selectin")
     calendar_days = relationship("CalendarDay", back_populates="tour", lazy="selectin")

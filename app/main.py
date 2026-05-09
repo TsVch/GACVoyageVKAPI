@@ -1,18 +1,22 @@
 import logging
 
 from fastapi import FastAPI
-from sqlalchemy import select
+from sqlalchemy import text, select
 
 from app.db import Base, AsyncSessionLocal, engine
 from app.models import Driver, Tour
 from app.routers.admin import router as admin_router
 from app.routers.vk import router as vk_router
+from app.routers.public import router as public_router
+from app.routers.bookings import router as bookings_router
 
 logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(title="Tour Booking Chatbot")
 app.include_router(vk_router)
 app.include_router(admin_router)
+app.include_router(public_router)
+app.include_router(bookings_router)
 
 
 @app.get("/health")
@@ -24,6 +28,12 @@ async def health() -> dict[str, str]:
 async def startup_event() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+
+    async with engine.begin() as conn:
+        await conn.execute(text("ALTER TABLE tours ADD COLUMN IF NOT EXISTS start_time VARCHAR(20)"))
+        await conn.execute(text("ALTER TABLE tours ADD COLUMN IF NOT EXISTS meeting_point VARCHAR(512)"))
+        await conn.execute(text("ALTER TABLE tours ADD COLUMN IF NOT EXISTS duration VARCHAR(64)"))
 
     async with AsyncSessionLocal() as session:
         tours_exist = (await session.execute(select(Tour.id).limit(1))).first()

@@ -24,6 +24,10 @@ def tour_keyboard(tour_id: int) -> dict:
     return {"inline": True, "buttons": [[{"action": {"type": "text", "label": "Select tour", "payload": json.dumps({"tour_id": tour_id})}, "color": "primary"}]]}
 
 
+def main_menu_keyboard() -> dict:
+    return {"inline": True, "buttons": [[{"action": {"type": "text", "label": "Мои бронирования", "payload": json.dumps({"cmd": "my_bookings"})}, "color": "secondary"}]]}
+
+
 @router.post("/vk", response_class=PlainTextResponse)
 async def vk_callback(payload: VKCallbackEvent, db: AsyncSession = Depends(get_db)) -> str:
     settings = get_settings()
@@ -42,6 +46,7 @@ async def vk_callback(payload: VKCallbackEvent, db: AsyncSession = Depends(get_d
     try:
         if text.lower() in {"start", "начать", "привет"}:
             tours = await booking_service.list_tours()
+            await vk.send_message(user_id, "Выберите действие или экскурсию", keyboard=main_menu_keyboard())
             for t in tours:
                 media = "\n".join([f"Фото: {u}" for u in t.photo_urls[:3]])
                 card = f"🏝 {t.name}\n{t.description}\n💵 {t.price} ₽\n⭐ {t.rating}\nАльбом: {t.vk_album_url or '-'}\nВидео: {t.video_url or '-'}\n{media}"
@@ -52,6 +57,24 @@ async def vk_callback(payload: VKCallbackEvent, db: AsyncSession = Depends(get_d
 
         if msg.payload:
             payload_data = json.loads(msg.payload)
+            if payload_data.get("cmd") == "my_bookings":
+                internal_user_id = session.payload.get("user_id")
+                if internal_user_id is None:
+                    user = await booking_service.get_user(vk_id=str(user_id))
+                    if user:
+                        internal_user_id = user.id
+                        session.payload["user_id"] = internal_user_id
+                        await storage.set(user_id, session)
+                if internal_user_id is None:
+                    await vk.send_message(user_id, "У вас пока нет бронирований.")
+                    return "ok"
+                bookings = await booking_service.list_user_bookings(user_id=int(internal_user_id))
+                if not bookings:
+                    await vk.send_message(user_id, "У вас пока нет бронирований.")
+                    return "ok"
+                lines = [f"#{b.id}: {b.tour.name if b.tour else 'Экскурсия'} — {b.date}, {b.people_count} чел., статус: {b.status}" for b in bookings]
+                await vk.send_message(user_id, "Ваши бронирования:\n" + "\n".join(lines))
+                return "ok"
             if payload_data.get("tour_id"):
                 session.payload["tour_id"] = int(payload_data["tour_id"])
                 session.state = DialogState.SELECT_DATE
@@ -105,7 +128,9 @@ async def vk_callback(payload: VKCallbackEvent, db: AsyncSession = Depends(get_d
                 await vk.send_message(user_id, "Нет мест или дата заблокирована")
                 await storage.clear(user_id)
                 return "ok"
-            booking = await booking_service.create_booking(user_id=user_id, tour_id=tour.id, date=booking_date, name=session.payload["name"], phone=session.payload["phone"], people_count=int(session.payload["people_count"]), status="confirmed")
+            booking = await booking_service.create_booking(vk_id=str(user_id), tour_id=tour.id, date=booking_date, name=session.payload["name"], phone=session.payload["phone"], people_count=int(session.payload["people_count"]), status="confirmed")
+            session.payload["user_id"] = booking.user_id
+            await storage.set(user_id, session)
             pdfs = PDFService().generate_booking_documents(booking)
             await vk.send_message(user_id, "Бронирование подтверждено")
             await notify_drivers(db, booking, pdfs)

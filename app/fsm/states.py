@@ -1,7 +1,7 @@
-from enum import StrEnum
+from enum import Enum
 
 
-class DialogState(StrEnum):
+class DialogState(str, Enum):
     START = "START"
     SELECT_TOUR = "SELECT_TOUR"
     SELECT_DATE = "SELECT_DATE"

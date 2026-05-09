@@ -10,7 +10,7 @@ class Booking(Base):
     __tablename__ = "bookings"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     tour_id: Mapped[int] = mapped_column(ForeignKey("tours.id"), nullable=False)
     date: Mapped[date] = mapped_column(Date, nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -20,3 +20,4 @@ class Booking(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     tour = relationship("Tour", back_populates="bookings", lazy="selectin")
+    user = relationship("User", back_populates="bookings", lazy="selectin")

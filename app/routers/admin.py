@@ -1,12 +1,16 @@
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
+from app.models.booking import Booking
 from app.models.tour import Tour
 from app.schemas.admin import BlockDatePayload, TourCreate
+from app.schemas.booking import BookingCancelOut
 from app.services.booking_calendar import BookingCalendar
+from app.services.booking_service import BookingService
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -25,8 +29,8 @@ async def block_date(payload: BlockDatePayload, db: AsyncSession = Depends(get_d
     tour = await db.get(Tour, payload.tour_id)
     if not tour:
         raise HTTPException(404, "Tour not found")
-    await BookingCalendar(db, tour).block_date(payload.date)
-    return {"status": "blocked"}
+    canceled_count = await BookingCalendar(db, tour).block_date(payload.date)
+    return {"status": "blocked", "canceled_bookings": canceled_count}
 
 
 @router.delete("/block-date")
@@ -38,10 +42,46 @@ async def unblock_date(payload: BlockDatePayload, db: AsyncSession = Depends(get
     return {"status": "unblocked"}
 
 
-@router.get("/calendar")
+@router.get("/calendar", deprecated=True)
 async def admin_calendar(tour_id: int = Query(...), year: int = Query(...), month: int = Query(...), db: AsyncSession = Depends(get_db)) -> dict:
     tour = await db.get(Tour, tour_id)
     if not tour:
         raise HTTPException(404, "Tour not found")
     kb = await BookingCalendar(db, tour).build_keyboard("admin", year, month)
     return {"legend": "🟢4-6 🟡2-3 🔴1 🚫0 ❌blocked ⚪na", "keyboard": kb}
+
+
+@router.get("/bookings")
+async def list_bookings(tour_id: int | None = None, date: date | None = None, status: str | None = None, db: AsyncSession = Depends(get_db)) -> list[dict]:
+    q = select(Booking)
+    if tour_id is not None:
+        q = q.where(Booking.tour_id == tour_id)
+    if date is not None:
+        q = q.where(Booking.date == date)
+    if status is not None:
+        q = q.where(Booking.status == status)
+    rows = (await db.execute(q.order_by(Booking.created_at.desc()))).scalars().all()
+    return [
+        {
+            "booking_id": b.id,
+            "user_id": b.user_id,
+            "user_name": b.name,
+            "phone": b.phone,
+            "tour_id": b.tour_id,
+            "tour_name": b.tour.name if b.tour else None,
+            "date": b.date,
+            "count": b.people_count,
+            "status": b.status,
+            "price": float(b.tour.price) if b.tour else None,
+        }
+        for b in rows
+    ]
+
+
+@router.patch("/bookings/{booking_id}/cancel", response_model=BookingCancelOut)
+async def admin_cancel_booking(booking_id: int, db: AsyncSession = Depends(get_db)) -> BookingCancelOut:
+    try:
+        booking, released_places = await BookingService(db).cancel_booking(booking_id)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc))
+    return BookingCancelOut(booking_id=booking.id, status=booking.status, released_places=released_places)
