@@ -208,4 +208,4 @@ async def vk_callback(request: Request, db: AsyncSession = Depends(get_db)) -> P
         except Exception:
             logger.exception("Failed to send error message to user %s", user_id)
 
-    return PlainTextResponse("ok1", status_code=200)
+    return PlainTextResponse("ok", status_code=200)

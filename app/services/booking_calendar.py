@@ -181,19 +181,30 @@ class BookingCalendar:
         data = await self.get_month_data(self.tour.id, year, month)
         cal = calendar.Calendar(firstweekday=0)
         buttons = []
+
+        # Заголовок: дни недели (разбит на 2 строки по 4 и 3)
+        weekdays_1 = ["Пн", "Вт", "Ср", "Чт"]
+        weekdays_2 = ["Пт", "Сб", "Вс"]
+        buttons.append(
+            [{"action": {"type": "text", "label": d, "payload": "{}"}, "color": "secondary"} for d in weekdays_1])
+        buttons.append(
+            [{"action": {"type": "text", "label": d, "payload": "{}"}, "color": "secondary"} for d in weekdays_2])
+
         for week in cal.monthdatescalendar(year, month):
-            row = []
-            for d in week:
-                if d.month != month:
-                    row.append({"action": {"type": "text", "label": " ", "payload": "{}"}, "color": "secondary"})
-                    continue
-                st = self.get_day_status(d, data["days"].get(d))
-                payload = {"cmd": f"{'admin_date' if mode == 'admin' else 'date'}:{d.isoformat()}"}
-                row.append(
-                    {
+            # Неделю разбиваем на 2 строки: 4 дня + 3 дня
+            for chunk in [week[:4], week[4:]]:
+                row = []
+                for d in chunk:
+                    if d.month != month:
+                        row.append({"action": {"type": "text", "label": " ", "payload": "{}"}, "color": "secondary"})
+                        continue
+                    st = self.get_day_status(d, data["days"].get(d))
+                    payload = {"cmd": f"{'admin_date' if mode == 'admin' else 'date'}:{d.isoformat()}"}
+                    row.append({
                         "action": {"type": "text", "label": f"{d.day}{st.emoji}", "payload": json.dumps(payload)},
                         "color": "secondary",
-                    }
-                )
-            buttons.append(row)
+                    })
+                if row:
+                    buttons.append(row)
+
         return {"inline": True, "buttons": buttons}
