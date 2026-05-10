@@ -258,4 +258,4 @@ class BookingCalendar:
         day_rows = [day_buttons[i: i + CHUNK] for i in range(0, len(day_buttons), CHUNK)]
 
         buttons = [nav_row] + day_rows
-        return {"inline": True, "buttons": buttons}
+        return {"one_time": True, "buttons": buttons}
