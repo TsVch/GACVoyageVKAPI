@@ -15,7 +15,9 @@ from app.services.booking_service import BookingService
 from app.services.notification_service import notify_drivers
 from app.services.pdf_service import PDFService
 from app.services.vk_service import VKService
+import logging
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 storage = FSMStorage()
 
@@ -59,7 +61,12 @@ def main_menu_keyboard() -> dict:
 @router.post("/vk/callback", response_class=PlainTextResponse)
 async def vk_callback(request: Request, db: AsyncSession = Depends(get_db)) -> PlainTextResponse:
     settings = get_settings()
-    payload = await request.json()
+    # Безопасное чтение тела
+    try:
+        payload = await request.json()
+    except Exception:
+        logger.warning("Invalid or empty request body from %s", request.client)
+        return PlainTextResponse("ok", status_code=200)
 
     if payload.get("type") == "confirmation":
         return PlainTextResponse(settings.vk_confirmation_code, status_code=200)
@@ -195,6 +202,10 @@ async def vk_callback(request: Request, db: AsyncSession = Depends(get_db)) -> P
         else:
             await vk.send_message(user_id, "Напишите start")
     except Exception:
-        await vk.send_message(user_id, "Ошибка. Напишите start")
+        logger.exception("Unhandled error in VK callback for user %s", user_id)
+        try:
+            await vk.send_message(user_id, "Ошибка. Напишите start")
+        except Exception:
+            logger.exception("Failed to send error message to user %s", user_id)
 
-    return PlainTextResponse("ok", status_code=200)
+    return PlainTextResponse("ok1", status_code=200)
