@@ -129,22 +129,43 @@ async def vk_callback(request: Request, db: AsyncSession = Depends(get_db)) -> P
                     cal = BookingCalendar(db, tour)
                     now = datetime.utcnow()
                     legend = (
-                        "🟢 4–6 places available\n🟡 2–3 places available\n🔴 1 place left\n"
-                        "🚫 no places\n❌ blocked\n⚪ unavailable"
+                        "🟢 4–6 мест свободно\n🟡 2–3 места свободно\n🔴 1 место осталось\n"
+                        "🚫 мест нет\n❌ дата заблокирована\n⚪ дата недоступна"
                     )
                     await vk.send_message(user_id, legend)
                     await vk.send_message(
                         user_id,
-                        "Выберите дату",
+                        "Выберите дату:",
                         keyboard=await cal.build_keyboard("user", now.year, now.month),
                     )
+                return PlainTextResponse("ok", status_code=200)
+
+            # Навигация по месяцам (кнопки ◀ / ▶)
+            cmd_val = payload_data.get("cmd", "")
+            if cmd_val.startswith("cal_nav:") and session.state == DialogState.SELECT_DATE:
+                nav_ym = cmd_val.split(":", 1)[1]  # "2026-06"
+                nav_year, nav_month = int(nav_ym[:4]), int(nav_ym[5:7])
+                tour_id = session.payload.get("tour_id")
+                if tour_id:
+                    tour = await booking_service.get_tour(int(tour_id))
+                    if tour:
+                        cal = BookingCalendar(db, tour)
+                        await vk.send_message(
+                            user_id,
+                            "Выберите дату:",
+                            keyboard=await cal.build_keyboard("user", nav_year, nav_month),
+                        )
                 return PlainTextResponse("ok", status_code=200)
 
         if session.state == DialogState.SELECT_DATE:
             if not msg.payload:
                 await vk.send_message(user_id, "Выберите дату в календаре")
                 return PlainTextResponse("ok", status_code=200)
-            selected = date.fromisoformat(json.loads(msg.payload)["cmd"].split(":", 1)[1])
+            payload_cmd = json.loads(msg.payload).get("cmd", "")
+            # Игнорируем нажатия на заголовок месяца и кнопки навигации
+            if not payload_cmd.startswith("date:"):
+                return PlainTextResponse("ok", status_code=200)
+            selected = date.fromisoformat(payload_cmd.split(":", 1)[1])
             tour = await booking_service.get_tour(int(session.payload["tour_id"]))
             if not tour or not await booking_service.is_available(tour, selected, 1):
                 await vk.send_message(user_id, "Дата недоступна, выберите другую")
@@ -153,22 +174,26 @@ async def vk_callback(request: Request, db: AsyncSession = Depends(get_db)) -> P
             session.state = DialogState.INPUT_NAME
             await storage.set(user_id, session)
             await vk.send_message(user_id, "Введите ФИО")
+            return PlainTextResponse("ok", status_code=200)
         elif session.state == DialogState.INPUT_NAME:
             session.payload["name"] = text
             session.state = DialogState.INPUT_PHONE
             await storage.set(user_id, session)
             await vk.send_message(user_id, "Введите телефон")
+            return PlainTextResponse("ok", status_code=200)
         elif session.state == DialogState.INPUT_PHONE:
             session.payload["phone"] = text
             session.state = DialogState.INPUT_PEOPLE_COUNT
             await storage.set(user_id, session)
             await vk.send_message(user_id, "Введите количество человек")
+            return PlainTextResponse("ok", status_code=200)
         elif session.state == DialogState.INPUT_PEOPLE_COUNT:
             people = int(text)
             session.payload["people_count"] = people
             session.state = DialogState.CONFIRM
             await storage.set(user_id, session)
             await vk.send_message(user_id, "Подтвердите бронирование: да/нет")
+            return PlainTextResponse("ok", status_code=200)
         elif session.state == DialogState.CONFIRM:
             if text.lower() not in {"да", "yes", "y"}:
                 await vk.send_message(user_id, "Отменено")
