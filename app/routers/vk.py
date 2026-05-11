@@ -173,7 +173,8 @@ async def vk_callback(request: Request, db: AsyncSession = Depends(get_db)) -> P
             session.payload["date"] = selected.isoformat()
             session.state = DialogState.INPUT_NAME
             await storage.set(user_id, session)
-            await vk.send_message(user_id, "Введите ФИО")
+            # Убираем клавиатуру-календарь перед текстовым вводом
+            await vk.send_message(user_id, "Введите ФИО:", keyboard={"buttons": []})
             return PlainTextResponse("ok", status_code=200)
         elif session.state == DialogState.INPUT_NAME:
             session.payload["name"] = text
