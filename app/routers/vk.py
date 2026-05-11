@@ -1,3 +1,4 @@
+import calendar
 import json
 import logging
 from datetime import date, datetime
@@ -54,16 +55,46 @@ def _shift_month(year: int, month: int, delta: int) -> tuple[int, int]:
     return year, month
 
 
-def decorate_calendar_keyboard(keyboard: dict, year: int, month: int) -> dict:
+def _month_title(year: int, month: int) -> str:
+    month_names = {
+        1: "Январь",
+        2: "Февраль",
+        3: "Март",
+        4: "Апрель",
+        5: "Май",
+        6: "Июнь",
+        7: "Июль",
+        8: "Август",
+        9: "Сентябрь",
+        10: "Октябрь",
+        11: "Ноябрь",
+        12: "Декабрь",
+    }
+    return f"{month_names[month]} {year}"
+
+
+async def build_compact_calendar_keyboard(cal: BookingCalendar, year: int, month: int) -> dict:
     prev_year, prev_month = _shift_month(year, month, -1)
     next_year, next_month = _shift_month(year, month, 1)
-    weekday_row = [_button(day, {"cmd": "noop"}) for day in ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]]
+    month_title = _month_title(year, month)
     nav_row = [
         _button("◀", {"cmd": f"cal_nav:{prev_year:04d}-{prev_month:02d}"}),
-        _button(f"{month:02d}.{year}", {"cmd": "noop"}),
+        _button(month_title, {"cmd": "noop"}),
         _button("▶", {"cmd": f"cal_nav:{next_year:04d}-{next_month:02d}"}),
     ]
-    return {"inline": True, "buttons": [nav_row, weekday_row, *keyboard.get("buttons", [])]}
+    weekday_row = [_button(day, {"cmd": "noop"}) for day in ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]]
+    month_data = await cal.get_month_data(cal.tour.id, year, month)
+    week_rows = []
+    for week in calendar.Calendar(firstweekday=0).monthdatescalendar(year, month)[:5]:
+        row = []
+        for day in week:
+            if day.month != month:
+                continue
+            status = cal.get_day_status(day, month_data["days"].get(day))
+            row.append(_button(f"{day.day}{status.emoji}", {"cmd": f"date:{day.isoformat()}"}))
+        if row:
+            week_rows.append(row[:7])
+    return {"inline": True, "buttons": [nav_row, weekday_row, *week_rows][:7]}
 
 
 def day_status_title(status: str) -> str:
@@ -77,24 +108,40 @@ def day_status_title(status: str) -> str:
 
 
 async def send_month_calendar(vk: VKService, user_id: int, cal: BookingCalendar, year: int, month: int) -> None:
-    keyboard = decorate_calendar_keyboard(await cal.build_keyboard("user", year, month), year, month)
+    keyboard = await build_compact_calendar_keyboard(cal, year, month)
     await vk.send_message(user_id, "Выберите дату:", keyboard=keyboard)
 
 
 async def send_day_details(vk: VKService, user_id: int, cal: BookingCalendar, selected: date) -> None:
     capacity = await cal.get_day_capacity(selected)
+    if capacity.status == "blocked":
+        message = (
+            f"📅 {selected.strftime('%d.%m.%Y')}\n\n"
+            "❌ Дата заблокирована для бронирования\n\n"
+            "Выберите другую дату."
+        )
+        await vk.send_message(user_id, message)
+        return
+    if capacity.status == "full":
+        message = (
+            f"📅 {selected.strftime('%d.%m.%Y')}\n\n"
+            "🚫 Мест нет\n\n"
+            f"👥 Всего мест: {capacity.total_places}\n"
+            f"❌ Занято: {capacity.booked_places}\n\n"
+            "Выберите другую дату."
+        )
+        await vk.send_message(user_id, message)
+        return
+
     message = (
-        f"📅 {selected.strftime('%d.%m.%Y')}\n"
+        f"📅 {selected.strftime('%d.%m.%Y')}\n\n"
         f"{day_status_title(capacity.status)}\n\n"
-        f"Всего мест: {capacity.total_places}\n"
-        f"Занято: {capacity.booked_places}\n"
-        f"Свободно: {capacity.available_places}\n\n"
+        f"👥 Всего мест: {capacity.total_places}\n"
+        f"✅ Свободно: {capacity.available_places}\n"
+        f"❌ Занято: {capacity.booked_places}\n\n"
         f"{_day_message(capacity.status, capacity.available_places, capacity.total_places)}"
     )
-    keyboard = None
-    if capacity.status not in {"blocked", "full"} and capacity.available_places > 0:
-        keyboard = booking_action_keyboard(selected)
-    await vk.send_message(user_id, message, keyboard=keyboard)
+    await vk.send_message(user_id, message, keyboard=booking_action_keyboard(selected))
 
 
 def _day_message(status: str, available_places: int, total_places: int) -> str:
@@ -251,8 +298,12 @@ async def vk_callback(request: Request, db: AsyncSession = Depends(get_db)) -> P
             return PlainTextResponse("ok", status_code=200)
         elif session.state == DialogState.CONFIRM:
             consent_accepted = cmd_val == "consent:yes"
-            if not consent_accepted and text.lower() not in {"да", "yes", "y"}:
-                await vk.send_message(user_id, "Для бронирования нажмите кнопку согласия или напишите 'да'.")
+            if not consent_accepted:
+                await vk.send_message(
+                    user_id,
+                    "Для бронирования нажмите кнопку согласия на обработку персональных данных.",
+                    keyboard=consent_keyboard(),
+                )
                 return PlainTextResponse("ok", status_code=200)
             tour = await booking_service.get_tour(int(session.payload["tour_id"]))
             booking_date = date.fromisoformat(session.payload["date"])
