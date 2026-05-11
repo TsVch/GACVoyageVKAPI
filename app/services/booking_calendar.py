@@ -179,34 +179,51 @@ class BookingCalendar:
 
     async def build_keyboard(self, mode: str, year: int, month: int) -> dict:
         """
-        Build a VK inline keyboard for the given month.
+        VK regular keyboard (not inline)
 
-        VK hard limits: max 10 rows, max 5 buttons per row.
-        Strategy:
-          - Row 0: navigation  ← / «Month YYYY» / →   (3 buttons)
-          - Rows 1-N: days of the month, 5 per row
-            31 days → 7 rows; any month fits in 10 rows total.
-          - Past days are shown greyed-out and non-clickable (payload "{}").
+        Limits:
+        - max 10 rows
+        - max 10 buttons per row
+
+        Layout:
+        row 1 -> navigation
+        row 2 -> weekdays
+        rows 3-8 -> calendar grid
         """
-        import math
 
         data = await self.get_month_data(self.tour.id, year, month)
         date_cmd = "admin_date" if mode == "admin" else "date"
 
-        # ── Navigation row ──────────────────────────────────────────────────
         MONTH_NAMES = [
-            "", "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
-            "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
+            "", "Январь", "Февраль", "Март", "Апрель",
+            "Май", "Июнь", "Июль", "Август",
+            "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
         ]
-        prev_year, prev_month = (year, month - 1) if month > 1 else (year - 1, 12)
-        next_year, next_month = (year, month + 1) if month < 12 else (year + 1, 1)
+
+        prev_year, prev_month = (
+            (year, month - 1)
+            if month > 1
+            else (year - 1, 12)
+        )
+
+        next_year, next_month = (
+            (year, month + 1)
+            if month < 12
+            else (year + 1, 1)
+        )
+
+        # ─────────────────────────────────────
+        # Navigation row
+        # ─────────────────────────────────────
 
         nav_row = [
             {
                 "action": {
                     "type": "text",
                     "label": "◀",
-                    "payload": json.dumps({"cmd": f"cal_nav:{prev_year}-{prev_month:02d}"}),
+                    "payload": json.dumps({
+                        "cmd": f"cal_nav:{prev_year}-{prev_month:02d}"
+                    }),
                 },
                 "color": "secondary",
             },
@@ -214,48 +231,99 @@ class BookingCalendar:
                 "action": {
                     "type": "text",
                     "label": f"{MONTH_NAMES[month]} {year}",
-                    "payload": "{}",
+                    "payload": json.dumps({"cmd": "noop"}),
                 },
-                "color": "secondary",
+                "color": "primary",
             },
             {
                 "action": {
                     "type": "text",
                     "label": "▶",
-                    "payload": json.dumps({"cmd": f"cal_nav:{next_year}-{next_month:02d}"}),
+                    "payload": json.dumps({
+                        "cmd": f"cal_nav:{next_year}-{next_month:02d}"
+                    }),
                 },
                 "color": "secondary",
             },
         ]
 
-        # ── Day buttons ─────────────────────────────────────────────────────
-        _, days_in_month = calendar.monthrange(year, month)
-        day_buttons: list[dict] = []
+        # ─────────────────────────────────────
+        # Weekdays row
+        # ─────────────────────────────────────
 
-        for day_num in range(1, days_in_month + 1):
-            d = date(year, month, day_num)
-            st = self.get_day_status(d, data["days"].get(d))
+        weekdays_row = []
 
-            if d < date.today():
-                # Past day — greyed out, non-clickable
-                btn = {
-                    "action": {"type": "text", "label": f"{day_num}⚪", "payload": "{}"},
-                    "color": "secondary",
-                }
-            else:
-                btn = {
+        for day_name in ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]:
+            weekdays_row.append(
+                {
                     "action": {
                         "type": "text",
-                        "label": f"{day_num}{st.emoji}",
-                        "payload": json.dumps({"cmd": f"{date_cmd}:{d.isoformat()}"}),
+                        "label": day_name,
+                        "payload": json.dumps({"cmd": "noop"}),
                     },
                     "color": "secondary",
                 }
-            day_buttons.append(btn)
+            )
 
-        # Split into rows of 5 (max allowed by VK)
-        CHUNK = 5
-        day_rows = [day_buttons[i: i + CHUNK] for i in range(0, len(day_buttons), CHUNK)]
+        # ─────────────────────────────────────
+        # Calendar grid
+        # ─────────────────────────────────────
 
-        buttons = [nav_row] + day_rows
-        return {"one_time": True, "buttons": buttons}
+        cal = calendar.Calendar(firstweekday=0)
+
+        rows = []
+
+        for week in cal.monthdayscalendar(year, month):
+            row = []
+
+            for day_num in week:
+
+                # empty day
+                if day_num == 0:
+                    row.append(
+                        {
+                            "action": {
+                                "type": "text",
+                                "label": " ",
+                                "payload": json.dumps({"cmd": "noop"}),
+                            },
+                            "color": "secondary",
+                        }
+                    )
+                    continue
+
+                d = date(year, month, day_num)
+
+                st = self.get_day_status(d, data["days"].get(d))
+
+                # past days
+                if d < date.today():
+                    payload = {"cmd": "noop"}
+                else:
+                    payload = {
+                        "cmd": f"{date_cmd}:{d.isoformat()}"
+                    }
+
+                row.append(
+                    {
+                        "action": {
+                            "type": "text",
+                            "label": f"{day_num}{st.emoji}",
+                            "payload": json.dumps(payload),
+                        },
+                        "color": "secondary",
+                    }
+                )
+
+            rows.append(row)
+
+        buttons = [
+            nav_row,
+            weekdays_row,
+            *rows,
+        ]
+
+        return {
+            "one_time": False,
+            "buttons": buttons,
+        }
