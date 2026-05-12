@@ -13,6 +13,41 @@ from app.models.tour import Tour
 
 logger = logging.getLogger(__name__)
 
+# ─── Русские названия ───────────────────────────────────────────────────────
+_MONTH_NOM = [
+    "", "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+    "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
+]
+_MONTH_GEN = [
+    "", "января", "февраля", "марта", "апреля", "мая", "июня",
+    "июля", "августа", "сентября", "октября", "ноября", "декабря",
+]
+_WEEKDAY_SHORT = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+_WEEKDAY_FULL = [
+    "Понедельник", "Вторник", "Среда", "Четверг",
+    "Пятница", "Суббота", "Воскресенье",
+]
+
+
+def month_name(month: int, genitive: bool = False) -> str:
+    return _MONTH_GEN[month] if genitive else _MONTH_NOM[month]
+
+
+def weekday_name(wd: int, full: bool = False) -> str:
+    """wd=0 → Пн/Понедельник, wd=6 → Вс/Воскресенье."""
+    return _WEEKDAY_FULL[wd] if full else _WEEKDAY_SHORT[wd]
+
+
+def format_date_ru(d: date, with_weekday: bool = True) -> str:
+    """Например: '13 мая 2026, Среда'."""
+    base = f"{d.day} {_MONTH_GEN[d.month]} {d.year}"
+    if with_weekday:
+        wd = _WEEKDAY_FULL[d.weekday()]
+        return f"{base}, {wd}"
+    return base
+
+
+# ─── Dataclasses ────────────────────────────────────────────────────────────
 
 @dataclass
 class DayStatus:
@@ -29,14 +64,21 @@ class DayCapacity:
     status: str
 
 
+# ─── BookingCalendar ─────────────────────────────────────────────────────────
+
 class BookingCalendar:
     def __init__(self, db: AsyncSession, tour: Tour) -> None:
         self.db = db
         self.tour = tour
 
+    # ── internal helpers ────────────────────────────────────────────────────
+
     async def _get_or_create_day(self, day: date) -> CalendarDay:
         q = await self.db.execute(
-            select(CalendarDay).where(CalendarDay.tour_id == self.tour.id, CalendarDay.date == day)
+            select(CalendarDay).where(
+                CalendarDay.tour_id == self.tour.id,
+                CalendarDay.date == day,
+            )
         )
         row = q.scalar_one_or_none()
         if row:
@@ -51,6 +93,8 @@ class BookingCalendar:
         self.db.add(row)
         await self.db.flush()
         return row
+
+    # ── public data methods ─────────────────────────────────────────────────
 
     async def get_month_data(self, tour_id: int, year: int, month: int) -> dict:
         first = date(year, month, 1)
@@ -108,17 +152,26 @@ class BookingCalendar:
         capacity = await self.get_day_capacity(day)
         return (not capacity.is_blocked) and capacity.available_places >= people_count
 
+    # ── booking operations ──────────────────────────────────────────────────
+
     async def cancel_bookings_for_day(self, day: date, commit: bool = True) -> int:
         result = await self.db.execute(
             update(Booking)
-            .where(Booking.tour_id == self.tour.id, Booking.date == day, Booking.status != "canceled")
+            .where(
+                Booking.tour_id == self.tour.id,
+                Booking.date == day,
+                Booking.status != "canceled",
+            )
             .values(status="canceled")
         )
         canceled_count = result.rowcount or 0
         if commit:
             await self.db.commit()
         if canceled_count:
-            logger.info("Canceled %s bookings for tour_id=%s date=%s", canceled_count, self.tour.id, day)
+            logger.info(
+                "Canceled %s bookings for tour_id=%s date=%s",
+                canceled_count, self.tour.id, day,
+            )
         return canceled_count
 
     async def block_date(self, day: date) -> int:
@@ -135,7 +188,9 @@ class BookingCalendar:
         row.is_blocked = False
         await self.db.commit()
 
-    async def increment_booking(self, day: date, people_count: int, commit: bool = True) -> None:
+    async def increment_booking(
+        self, day: date, people_count: int, commit: bool = True
+    ) -> None:
         q = await self.db.execute(
             select(CalendarDay)
             .where(CalendarDay.tour_id == self.tour.id, CalendarDay.date == day)
@@ -156,13 +211,18 @@ class BookingCalendar:
             raise ValueError("No availability")
         row.booked_people_count += people_count
         if row.booked_people_count >= row.max_people:
-            logger.info("Calendar day reached full capacity for tour_id=%s date=%s", self.tour.id, day)
+            logger.info(
+                "Calendar day reached full capacity for tour_id=%s date=%s",
+                self.tour.id, day,
+            )
         if commit:
             await self.db.commit()
         else:
             await self.db.flush()
 
-    async def decrement_booking(self, day: date, people_count: int, commit: bool = True) -> None:
+    async def decrement_booking(
+        self, day: date, people_count: int, commit: bool = True
+    ) -> None:
         q = await self.db.execute(
             select(CalendarDay)
             .where(CalendarDay.tour_id == self.tour.id, CalendarDay.date == day)
@@ -177,27 +237,65 @@ class BookingCalendar:
         else:
             await self.db.flush()
 
+    # ── calendar text & keyboard ─────────────────────────────────────────────
+
+    @staticmethod
+    def build_month_text(year: int, month: int) -> str:
+        """
+        Возвращает текстовый календарь на месяц (для отображения НАД кнопками).
+
+        VK не поддерживает 7 кнопок в строке (лимит 5), поэтому дни недели
+        отображаются в тексте сообщения в виде сетки-справки. Пользователь
+        видит структуру месяца, а нажимает на числа-кнопки ниже.
+
+        Пример вывода:
+            🗓 Май 2026
+            Пн Вт Ср Чт Пт Сб Вс
+            ·· ·· ·· ·· ·1 ·2 ·3
+            ·4 ·5 ·6 ·7 ·8 ·9 10
+            11 12 13 14 15 16 17
+            18 19 20 21 22 23 24
+            25 26 27 28 29 30 31
+        """
+        cal = calendar.Calendar(firstweekday=0)   # Пн = 0
+        weeks = cal.monthdatescalendar(year, month)
+
+        lines = [
+            f"🗓 {_MONTH_NOM[month]} {year}",
+            " ".join(_WEEKDAY_SHORT),
+        ]
+        for week in weeks:
+            parts = []
+            for d in week:
+                if d.month != month:
+                    parts.append("··")
+                else:
+                    parts.append(f"{d.day:2d}")
+            lines.append(" ".join(parts))
+
+        lines += [
+            "",
+            "👆 Нажмите на нужную дату",
+            "⚪ — прошедшие  ❌ — блок  🚫 — нет мест  🔴 — 1  🟡 — 2–3  🟢 — 4+",
+        ]
+        return "\n".join(lines)
+
     async def build_keyboard(self, mode: str, year: int, month: int) -> dict:
         """
-        Build a VK inline keyboard for the given month.
+        Строит VK-клавиатуру (one_time) для выбора даты.
 
-        VK hard limits: max 10 rows, max 5 buttons per row.
-        Strategy:
-          - Row 0: navigation  ← / «Month YYYY» / →   (3 buttons)
-          - Rows 1-N: days of the month, 5 per row
-            31 days → 7 rows; any month fits in 10 rows total.
-          - Past days are shown greyed-out and non-clickable (payload "{}").
+        Ограничения VK:
+        • inline-клавиатура: макс. 6 строк, 5 кнопок в строке
+        • обычная (one_time): макс. 10 строк, 5 кнопок в строке
+
+        Структура:
+        • Строка 0: ◀  «Месяц YYYY»  ▶  (навигация)
+        • Строки 1-7: числа месяца по 5 в строке
+        Итого для 31-дневного месяца: 1 + 7 = 8 строк — укладывается.
         """
-        import math
-
         data = await self.get_month_data(self.tour.id, year, month)
         date_cmd = "admin_date" if mode == "admin" else "date"
 
-        # ── Navigation row ──────────────────────────────────────────────────
-        MONTH_NAMES = [
-            "", "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
-            "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
-        ]
         prev_year, prev_month = (year, month - 1) if month > 1 else (year - 1, 12)
         next_year, next_month = (year, month + 1) if month < 12 else (year + 1, 1)
 
@@ -213,7 +311,7 @@ class BookingCalendar:
             {
                 "action": {
                     "type": "text",
-                    "label": f"{MONTH_NAMES[month]} {year}",
+                    "label": f"{_MONTH_NOM[month]} {year}",
                     "payload": "{}",
                 },
                 "color": "secondary",
@@ -228,7 +326,6 @@ class BookingCalendar:
             },
         ]
 
-        # ── Day buttons ─────────────────────────────────────────────────────
         _, days_in_month = calendar.monthrange(year, month)
         day_buttons: list[dict] = []
 
@@ -237,7 +334,6 @@ class BookingCalendar:
             st = self.get_day_status(d, data["days"].get(d))
 
             if d < date.today():
-                # Past day — greyed out, non-clickable
                 btn = {
                     "action": {"type": "text", "label": f"{day_num}⚪", "payload": "{}"},
                     "color": "secondary",
@@ -253,12 +349,8 @@ class BookingCalendar:
                 }
             day_buttons.append(btn)
 
-        # Split into rows of 5.
-        # ВАЖНО: inline-клавиатура VK ограничена 6 строками — используем
-        # обычную (one_time) клавиатуру с лимитом 10 строк.
-        # 1 строка навигации + ceil(31/5)=7 строк = 8 — укладывается.
         CHUNK = 5
         day_rows = [day_buttons[i: i + CHUNK] for i in range(0, len(day_buttons), CHUNK)]
-
         buttons = [nav_row] + day_rows
+        # one_time = клавиатура исчезает после нажатия (не inline, лимит 10 строк)
         return {"one_time": True, "buttons": buttons}
