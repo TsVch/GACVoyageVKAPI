@@ -520,8 +520,18 @@ async def vk_callback(
                 user_id,
                 f"📄 Ваши документы по бронированию #{booking.id}:",
             )
-            await vk.send_document(user_id, pdfs["contract"], title=f"Договор фрахтования #{booking.id}")
-            await vk.send_document(user_id, pdfs["consent"], title=f"Согласие на обработку ПД #{booking.id}")
+
+            await vk.send_document(
+                user_id,
+                pdfs["contract"]["url"],
+                title=f"Договор фрахтования #{booking.id}",
+            )
+
+            await vk.send_document(
+                user_id,
+                pdfs["consent"]["url"],
+                title=f"Согласие на обработку ПД #{booking.id}",
+            )
 
             # Итоговое сообщение клиенту
             await vk.send_message(
