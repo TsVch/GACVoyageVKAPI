@@ -29,8 +29,8 @@ async def notify_drivers(
             f"Тел: {booking.phone}\n"
             f"Людей: {booking.people_count}\n\n"
             f"Документы:\n"
-            f"Договор: {pdf_links['contract']}\n"
-            f"Согласие: {pdf_links['consent']}"
+            f"Договор: {pdf_links['contract']['url']}\n"
+            f"Согласие: {pdf_links['consent']['url']}"
         )
 
         await vk.send_message(driver.vk_user_id, text)

@@ -63,8 +63,12 @@ class PDFService:
         consent_name = Path(consent_path).name
 
         return {
-            "contract_path": str(contract_path),
-            "consent_path": str(consent_path),
-            "contract_url": self._build_public_url(contract_name),
-            "consent_url": self._build_public_url(consent_name),
+            "contract": {
+                "path": str(contract_path),
+                "url": self._build_public_url(contract_name),
+            },
+            "consent": {
+                "path": str(consent_path),
+                "url": self._build_public_url(consent_name),
+            },
         }
