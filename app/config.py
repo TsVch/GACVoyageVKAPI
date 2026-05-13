@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     redis_url: str | None = Field(default=None, alias="REDIS_URL")
     max_people_per_day: int = Field(default=6, alias="MAX_PEOPLE_PER_DAY")
     file_storage_path: str = Field(default="/tmp/contracts", alias="FILE_STORAGE_PATH")
+    # Публичный URL приложения (Railway). Пример: https://myapp.up.railway.app
+    # Используется для генерации ссылок на PDF-документы.
+    app_base_url: str = Field(default="", alias="APP_BASE_URL")
 
 
 @lru_cache

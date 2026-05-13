@@ -1,6 +1,8 @@
 import logging
+from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from sqlalchemy import text, select
 
 from app.db import Base, AsyncSessionLocal, engine
@@ -22,6 +24,29 @@ app.include_router(bookings_router)
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/files/{filename}")
+async def serve_file(filename: str) -> FileResponse:
+    """Отдаёт PDF-документ по имени файла.
+
+    Ссылка генерируется ботом и передаётся клиенту/водителю в сообщении.
+    Файл технически публичен по URL — без авторизации, без листинга.
+    Имена файлов содержат UUID, что делает случайный перебор нецелесообразным.
+    """
+    from app.config import get_settings
+    settings = get_settings()
+    path = Path(settings.file_storage_path) / filename
+    # Блокируем path traversal
+    if ".." in filename or "/" in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(
+        path,
+        media_type="application/pdf",
+        filename=filename,
+    )
 
 
 @app.on_event("startup")

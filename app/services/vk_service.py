@@ -55,9 +55,14 @@ class VKService:
         file_path: str,
         title: str | None = None,
     ) -> None:
-        """Загружает PDF-документ через VK Docs API и отправляет пользователю.
+        """Отправляет PDF-документ как ссылку для скачивания.
 
-        Требует scope=docs у токена. При ошибке — отправляет текстовое уведомление.
+        VK группы (community token) запрещают docs.getUploadServer (error 27).
+        Вместо этого файл отдаётся через эндпоинт /files/{filename} самого
+        приложения. Имя файла содержит UUID — случайный перебор нецелесообразен.
+
+        Требует: APP_BASE_URL в .env, например:
+            APP_BASE_URL=https://gacvoyagevkapi-production.up.railway.app
         """
         path = Path(file_path)
         if not path.exists():
@@ -66,55 +71,14 @@ class VKService:
             return
 
         doc_title = title or path.stem
+        base_url = (self.settings.app_base_url or "").rstrip("/")
 
-        async with httpx.AsyncClient(timeout=60) as client:
-            # 1. Получаем URL сервера загрузки
-            r1 = await client.post(
-                f"{self.base_url}/docs.getUploadServer",
-                data={
-                    "access_token": self.settings.vk_token,
-                    "v": self.api_version,
-                    "type": "doc",
-                    "peer_id": user_id,
-                },
-            )
-            d1 = r1.json()
-            if "error" in d1:
-                logger.error("docs.getUploadServer error: %s", d1["error"])
-                await self.send_message(user_id, f"📄 Документ готов: {doc_title} (ошибка загрузки)")
-                return
-            upload_url: str = d1["response"]["upload_url"]
+        if not base_url:
+            logger.warning("APP_BASE_URL not set — sending filename only")
+            await self.send_message(user_id, f"📄 {doc_title}\n(настройте APP_BASE_URL для ссылки)")
+            return
 
-            # 2. Загружаем файл
-            with open(file_path, "rb") as f:
-                r2 = await client.post(
-                    upload_url,
-                    files={"file": (path.name, f, "application/pdf")},
-                )
-            file_key = r2.json().get("file")
-            if not file_key:
-                logger.error("VK file upload failed: %s", r2.text)
-                await self.send_message(user_id, f"📄 Документ готов: {doc_title} (ошибка загрузки)")
-                return
-
-            # 3. Сохраняем документ
-            r3 = await client.post(
-                f"{self.base_url}/docs.save",
-                data={
-                    "access_token": self.settings.vk_token,
-                    "v": self.api_version,
-                    "file": file_key,
-                    "title": doc_title,
-                },
-            )
-            d3 = r3.json()
-            if "error" in d3:
-                logger.error("docs.save error: %s", d3["error"])
-                await self.send_message(user_id, f"📄 Документ готов: {doc_title} (ошибка сохранения)")
-                return
-            doc = d3["response"]["doc"]
-            attachment = f"doc{doc['owner_id']}_{doc['id']}"
-
-        # 4. Отправляем сообщение с вложением
-        await self.send_message(user_id, f"📄 {doc_title}", attachment=attachment)
-        logger.info("Sent document '%s' to user_id=%s", doc_title, user_id)
+        link = f"{base_url}/files/{path.name}"
+        text = f"📄 {doc_title}\n🔗 Скачать: {link}"
+        await self.send_message(user_id, text)
+        logger.info("Sent document link '%s' to user_id=%s", link, user_id)

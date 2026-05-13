@@ -15,8 +15,15 @@ def _register_fonts() -> tuple[str, str]:
         pdfmetrics.registerFont(TTFont("DejaVu", "DejaVuSans.ttf")); pdfmetrics.registerFont(TTFont("DejaVu-Bold", "DejaVuSans-Bold.ttf")); registerFontFamily("DejaVu", normal="DejaVu", bold="DejaVu-Bold"); return "DejaVu", "DejaVu-Bold"
     except Exception:
         return "Helvetica", "Helvetica-Bold"
-def generate_contract_pdf(order: dict, output_dir: Path, signed: bool = True) -> str:
-    normal_font, bold_font = _register_fonts(); output_dir.mkdir(parents=True, exist_ok=True); filename = output_dir / f"contract_{order['booking_id']}.pdf"
+def generate_contract_pdf(
+    order: dict,
+    output_dir: Path,
+    signed: bool = True,
+    filename: str | None = None
+) -> str:
+    normal_font, bold_font = _register_fonts(); output_dir.mkdir(parents=True, exist_ok=True);
+    pdf_name = filename or f"contract_{order['booking_id']}.pdf"
+    filename = output_dir / pdf_name
     doc = SimpleDocTemplate(str(filename), pagesize=A4, rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40)
     styles = getSampleStyleSheet(); styles.add(ParagraphStyle(name="TitleCenter", fontName=bold_font, fontSize=13, alignment=TA_CENTER, spaceAfter=12)); styles.add(ParagraphStyle(name="Justify", fontName=normal_font, fontSize=11, alignment=TA_JUSTIFY, leading=15, spaceAfter=10)); styles.add(ParagraphStyle(name="Section", fontName=bold_font, fontSize=11, spaceBefore=15, spaceAfter=8))
     story = [Paragraph(f"Договор фрахтования № {order['booking_id']}", styles['TitleCenter']), Paragraph("транспортного средства для перевозки пассажиров", styles['TitleCenter']), Paragraph(f"{EXECUTOR['name']}, ИНН {EXECUTOR['inn']}, именуемый в дальнейшем Фрахтовщик, и {order['name']}, именуемый в дальнейшем Фрахтователь, заключили настоящий договор о нижеследующем:", styles['Justify']), Paragraph(f"1.1. Фрахтовщик обязуется за плату в размере <b>{order['price']}</b> рублей предоставить Фрахтователю всю вместимость транспортного средства для перевозки пассажиров и багажа.", styles['Justify']), Paragraph(f"<b>1.4. Срок выполнения перевозки:</b> {order['date']}.", styles['Justify']), Paragraph("1.5. Транспортное средство:", styles['Section']), Paragraph(f"Марка и модель: {EXECUTOR['car']}<br/>Тип ТС: {EXECUTOR['car_type']}<br/>Государственный номер: {EXECUTOR['plate']}", styles['Justify']), Spacer(1, 20), Paragraph("Реквизиты и подписи сторон", styles['TitleCenter'])]

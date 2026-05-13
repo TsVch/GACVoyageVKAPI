@@ -239,46 +239,6 @@ class BookingCalendar:
 
     # ── calendar text & keyboard ─────────────────────────────────────────────
 
-    @staticmethod
-    def build_month_text(year: int, month: int) -> str:
-        """
-        Возвращает текстовый календарь на месяц (для отображения НАД кнопками).
-
-        VK не поддерживает 7 кнопок в строке (лимит 5), поэтому дни недели
-        отображаются в тексте сообщения в виде сетки-справки. Пользователь
-        видит структуру месяца, а нажимает на числа-кнопки ниже.
-
-        Пример вывода:
-            🗓 Май 2026
-            Пн Вт Ср Чт Пт Сб Вс
-            ·· ·· ·· ·· ·1 ·2 ·3
-            ·4 ·5 ·6 ·7 ·8 ·9 10
-            11 12 13 14 15 16 17
-            18 19 20 21 22 23 24
-            25 26 27 28 29 30 31
-        """
-        cal = calendar.Calendar(firstweekday=0)   # Пн = 0
-        weeks = cal.monthdatescalendar(year, month)
-
-        lines = [
-            f"🗓 {_MONTH_NOM[month]} {year}",
-            " ".join(_WEEKDAY_SHORT),
-        ]
-        for week in weeks:
-            parts = []
-            for d in week:
-                if d.month != month:
-                    parts.append("··")
-                else:
-                    parts.append(f"{d.day:2d}")
-            lines.append(" ".join(parts))
-
-        lines += [
-            "",
-            "👆 Нажмите на нужную дату",
-            "⚪ — прошедшие  ❌ — блок  🚫 — нет мест  🔴 — 1  🟡 — 2–3  🟢 — 4+",
-        ]
-        return "\n".join(lines)
 
     async def build_keyboard(self, mode: str, year: int, month: int) -> dict:
         """

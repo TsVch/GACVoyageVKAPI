@@ -214,9 +214,8 @@ async def _show_calendar(
         await vk.send_message(user_id, "Тур не найден. Напишите start.")
         return
     cal = BookingCalendar(db, tour)
-    text = BookingCalendar.build_month_text(year, month)
     keyboard = await cal.build_keyboard("user", year, month)
-    await vk.send_message(user_id, text, keyboard=keyboard)
+    await vk.send_message(user_id, "Выберите дату:", keyboard=keyboard)
 
 
 # ─── Main callback handler ────────────────────────────────────────────────────

@@ -17,13 +17,29 @@ def _register_fonts() -> tuple[str, str]:
     except Exception:
         return "Helvetica", "Helvetica-Bold"
 
-def generate_consent_pdf(name: str, phone: str, output_dir: Path, preview: bool = False) -> str:
+def generate_consent_pdf(
+    name: str,
+    phone: str,
+    output_dir: Path,
+    preview: bool = False,
+    filename: str | None = None
+) -> str:
     normal_font, bold_font = _register_fonts()
     output_dir.mkdir(parents=True, exist_ok=True)
     if preview:
-        filename = output_dir / "temp_consent.pdf"; full_name = "[ваше ФИО будет указано после ввода]"; phone_display = "[ваш телефон будет указан после ввода]"; date_display = "[дата]"; time_display = "[время]"
+        pdf_name = filename or "temp_consent.pdf"
+        filename = output_dir / pdf_name
+        full_name = "[ваше ФИО будет указано после ввода]"
+        phone_display = "[ваш телефон будет указан после ввода]"
+        date_display = "[дата]"
+        time_display = "[время]"
     else:
-        filename = output_dir / f"consent_{uuid.uuid4()}.pdf"; full_name = name; phone_display = phone; date_display = datetime.now().strftime("%d.%m.%Y"); time_display = datetime.now().strftime("%H:%M")
+        pdf_name = filename or f"consent_{uuid.uuid4()}.pdf"
+        filename = output_dir / pdf_name
+        full_name = name
+        phone_display = phone
+        date_display = datetime.now().strftime("%d.%m.%Y")
+        time_display = datetime.now().strftime("%H:%M")
     doc = SimpleDocTemplate(str(filename), pagesize=A4, rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40)
     styles = getSampleStyleSheet()
     styles.add(ParagraphStyle(name="TitleCenter", fontName=bold_font, fontSize=13, alignment=TA_CENTER, spaceAfter=12))
